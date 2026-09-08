@@ -1,135 +1,117 @@
 @echo off
 setlocal EnableExtensions EnableDelayedExpansion
-chcp 65001
+chcp 65001 >nul
 title METROCOP RADIO CONSOLE
 cd /d "%~dp0"
 
-REM This is the only radio console. Do not close it.
-REM AHK sends the single R key to this exact console.
-
+REM F6 in metrocop.ahk sends an R to this single, permanent console.
+REM Keep all files beside this script so it can be moved as one folder.
 set "MIC_NAME=Microphone (WO Mic Device)"
-set "COUNTER_FILE=radio_counter.txt"
+set "RAW_RECORDING=recording.pcm"
+set "INPUT_FILE=input.wav"
+set "VOICE_FILE=output_metrocop.wav"
+set "FINAL_FILE=radio_message.wav"
+set "HISTORY_DIR=recordings"
+set "MAX_HISTORY_INDEX=10"
 set "STATE=IDLE"
-set "CURRENT_ID="
-set "CURRENT_INPUT="
+
+if not exist "%HISTORY_DIR%" md "%HISTORY_DIR%"
 
 echo ============================================================
-echo   METROCOP RADIO CONSOLE
- echo  Console is permanent. AHK only sends R to this window.
-echo   F6 first press  = start recording
-echo   F6 second press = stop, convert, play
+echo             METROCOP RADIO - F6 TO TOGGLE
+echo   First F6: record from "%MIC_NAME%"
+echo   Second F6: stop, process, add radio sounds, and play
 echo ============================================================
-echo.
 
-:LOOP
-call :DRAIN_KEYS
+:WAIT_FOR_COMMAND
 if /I "!STATE!"=="IDLE" (
-    echo [READY] Waiting for F6 command from AHK...
+    echo.
+    echo [READY] Press F6 to start recording.
 ) else (
-    echo [RECORDING !CURRENT_ID!] Waiting for F6 command from AHK...
+    echo [RECORDING] Speak, then press F6 to stop.
 )
+choice /c R /n >nul
 
-REM choice waits only for R. The batch never exits and never opens another control console.
-choice /c R /n /m ""
-goto RADIO_BUTTON
-
-:RADIO_BUTTON
 if /I "!STATE!"=="IDLE" goto START_RECORDING
 if /I "!STATE!"=="RECORDING" goto STOP_AND_PROCESS
-
-echo [ERROR] Unknown state: !STATE!
+echo [ERROR] Invalid controller state. Resetting.
 set "STATE=IDLE"
-goto LOOP
+goto WAIT_FOR_COMMAND
 
 :START_RECORDING
-if not exist "%COUNTER_FILE%" echo 1>"%COUNTER_FILE%"
-set /p NUMBER=<"%COUNTER_FILE%"
-set /a NEXT=NUMBER+1
->"%COUNTER_FILE%" echo !NEXT!
-
-set "CURRENT_ID=0000!NUMBER!"
-set "CURRENT_ID=!CURRENT_ID:~-4!"
-set "CURRENT_INPUT=input_!CURRENT_ID!.pcm"
+del /q "%RAW_RECORDING%" 2>nul
 set "STATE=RECORDING"
+echo [START] Recording. Speak into WO Mic, then press F6.
 
-echo.
-echo ============================================================
-echo [START] Recording !CURRENT_ID!
-echo [START] Speak into WO Mic. Press F6 once to stop.
-echo ============================================================
-
-REM -nostdin is essential: only this batch may read console keys.
-REM /b keeps FFmpeg in this same console: no hidden windows and no extra control scripts.
-start "" /b ffmpeg -nostdin -y -f dshow -rtbufsize 64M -i "audio=%MIC_NAME%" -f s16le -ac 1 -ar 44100 "!CURRENT_INPUT!"
-
-timeout /t 1 /nobreak
-goto LOOP
+REM Raw PCM remains valid even when FFmpeg is stopped from the controller.
+REM It is converted to input.wav after recording has stopped cleanly enough.
+start "METROCOP FFmpeg recording" /b ffmpeg -nostdin -hide_banner -loglevel warning -y -f dshow -rtbufsize 64M -i "audio=%MIC_NAME%" -f s16le -ac 1 -ar 44100 "%RAW_RECORDING%"
+timeout /t 1 /nobreak >nul
+goto WAIT_FOR_COMMAND
 
 :STOP_AND_PROCESS
 set "STATE=PROCESSING"
-echo.
-echo ============================================================
-echo [STOP] Stopping recording !CURRENT_ID!...
-echo ============================================================
+echo [STOP] Finalising recording...
 
-REM Stop only the FFmpeg whose command line contains THIS unique input file.
-powershell -NoProfile -ExecutionPolicy Bypass -Command "$p=Get-CimInstance Win32_Process -Filter \"Name='ffmpeg.exe'\" ^| Where-Object {$_.CommandLine -like '*!CURRENT_INPUT!*'}; foreach($x in $p){Stop-Process -Id $x.ProcessId -Force}"
+REM Stop only the recorder created by this script, never another FFmpeg process.
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$p=Get-CimInstance Win32_Process -Filter \"Name='ffmpeg.exe'\" ^| Where-Object { $_.CommandLine -like '*%RAW_RECORDING%*' }; $p ^| ForEach-Object { Stop-Process -Id $_.ProcessId -Force }"
+timeout /t 1 /nobreak >nul
 
-timeout /t 1 /nobreak
+if not exist "%RAW_RECORDING%" goto PROCESS_ERROR
+for %%A in ("%RAW_RECORDING%") do set "RAW_SIZE=%%~zA"
+if !RAW_SIZE! LSS 4000 goto PROCESS_ERROR
 
-if not exist "!CURRENT_INPUT!" goto PROCESS_ERROR
-for %%A in ("!CURRENT_INPUT!") do set "INPUT_SIZE=%%~zA"
-if !INPUT_SIZE! LSS 4000 goto PROCESS_ERROR
-
-set "CURRENT_OUTPUT=output_metrocop_!CURRENT_ID!.wav"
-echo.
-echo [PROCESS] FFmpeg conversion log:
-
-ffmpeg -y -i on2.wav -f s16le -ar 44100 -ac 1 -i "!CURRENT_INPUT!" -i off2.wav -filter_complex "[0:a]aformat=sample_rates=44100:channel_layouts=mono[on];[1:a]asetrate=44100*0.8165,atempo=1.2247,aresample=44100,highpass=f=650,lowpass=f=3200,equalizer=f=1800:width_type=h:w=400:g=12,equalizer=f=900:width_type=h:w=200:g=6,volume=8dB,alimiter=limit=0.5,acompressor=threshold=-14dB:ratio=12:attack=10:release=100,volume=4dB,loudnorm,aformat=sample_rates=44100:channel_layouts=mono[voice];[2:a]aformat=sample_rates=44100:channel_layouts=mono[off];[on][voice][off]concat=n=3:v=0:a=1[out]" -map "[out]" "!CURRENT_OUTPUT!"
-
+REM Assemble the captured microphone data as the requested input.wav first.
+ffmpeg -y -hide_banner -loglevel warning -f s16le -ar 44100 -ac 1 -i "%RAW_RECORDING%" "%INPUT_FILE%"
 if errorlevel 1 goto PROCESS_ERROR
-if not exist "!CURRENT_OUTPUT!" goto PROCESS_ERROR
 
-echo.
-echo [OK] Created !CURRENT_OUTPUT!
-call :KEEP_LAST_10 "input_*.pcm"
-call :KEEP_LAST_10 "output_metrocop_*.wav"
+REM Keep this voice-conversion filter exactly as supplied.
+ffmpeg -y -i input.wav -af "asetrate=44100*0.8165,atempo=1.2247,aresample=44100,highpass=f=650,lowpass=f=3200,equalizer=f=1800:width_type=h:w=400:g=12,equalizer=f=900:width_type=h:w=200:g=6,volume=8dB,alimiter=limit=0.5,acompressor=threshold=-14dB:ratio=12:attack=10:release=100,volume=4dB,loudnorm" output_metrocop.wav
+if errorlevel 1 goto PROCESS_ERROR
 
-echo [PLAY] Playing processed audio now:
-REM ffplay is deliberately run in THIS console. Any playback error is visible here.
-ffplay -nodisp -autoexit -loglevel info "!CURRENT_OUTPUT!"
+if not exist "on2.wav" goto SOUNDS_MISSING
+if not exist "off2.wav" goto SOUNDS_MISSING
 
-echo [PLAY] Finished.
+REM Normalize the three sources, then concatenate on2 + converted voice + off2.
+ffmpeg -y -hide_banner -loglevel warning -i "on2.wav" -i "%VOICE_FILE%" -i "off2.wav" -filter_complex "[0:a]aresample=44100,aformat=channel_layouts=mono[on];[1:a]aresample=44100,aformat=channel_layouts=mono[voice];[2:a]aresample=44100,aformat=channel_layouts=mono[off];[on][voice][off]concat=n=3:v=0:a=1[out]" -map "[out]" "%FINAL_FILE%"
+if errorlevel 1 goto PROCESS_ERROR
+
+move /y "%FINAL_FILE%" "%VOICE_FILE%" >nul
+call :ARCHIVE
+echo [PLAY] Playing output_metrocop.wav on the Windows default device...
+ffplay -nodisp -autoexit -hide_banner -loglevel warning "%VOICE_FILE%"
+echo [DONE] Ready for the next message.
 set "STATE=IDLE"
-set "CURRENT_ID="
-set "CURRENT_INPUT="
-call :DRAIN_KEYS
+goto WAIT_FOR_COMMAND
 
-goto LOOP
+:SOUNDS_MISSING
+echo [ERROR] on2.wav and off2.wav must be next to radio.bat.
+goto PROCESS_ERROR
 
 :PROCESS_ERROR
-echo.
-echo [ERROR] The source was kept: !CURRENT_INPUT!
-echo [ERROR] Check FFmpeg output above and make sure on2.wav/off2.wav exist.
+echo [ERROR] Processing failed. The captured files were kept for diagnosis.
 set "STATE=IDLE"
-set "CURRENT_ID="
-set "CURRENT_INPUT="
-call :DRAIN_KEYS
-goto LOOP
+goto WAIT_FOR_COMMAND
 
-:DRAIN_KEYS
-REM Clears duplicated R events left by a controller after a start/stop action.
-powershell -NoProfile -ExecutionPolicy Bypass -Command "while([Console]::KeyAvailable){[Console]::ReadKey($true) ^| Out-Null}"
-exit /b
-
-:KEEP_LAST_10
-set "PATTERN=%~1"
-set /a KEEP_INDEX=0
-for /f "delims=" %%F in ('dir /b /a-d /o-n "%PATTERN%"') do (
-    set /a KEEP_INDEX+=1
-    if !KEEP_INDEX! GTR 10 (
-        echo [CLEANUP] Removing old file: %%F
-        del "%%F"
+:ARCHIVE
+REM Retain 11 complete message pairs, numbered 0 (oldest) through 10 (newest).
+REM Once full, delete 0, shift 1 to 0 through 10 to 9, then add the new 10.
+if exist "%HISTORY_DIR%\%MAX_HISTORY_INDEX%_input.wav" (
+    del /q "%HISTORY_DIR%\0_input.wav" "%HISTORY_DIR%\0_metrocop.wav" 2>nul
+    for /l %%N in (1,1,%MAX_HISTORY_INDEX%) do (
+        set /a PREVIOUS=%%N-1
+        if exist "%HISTORY_DIR%\%%N_input.wav" move /y "%HISTORY_DIR%\%%N_input.wav" "%HISTORY_DIR%\!PREVIOUS!_input.wav" >nul
+        if exist "%HISTORY_DIR%\%%N_metrocop.wav" move /y "%HISTORY_DIR%\%%N_metrocop.wav" "%HISTORY_DIR%\!PREVIOUS!_metrocop.wav" >nul
+    )
+    set "ARCHIVE_INDEX=%MAX_HISTORY_INDEX%"
+) else (
+    REM History is contiguous until it reaches the maximum index.
+    set "ARCHIVE_INDEX=0"
+    for /l %%N in (0,1,%MAX_HISTORY_INDEX%) do (
+        if exist "%HISTORY_DIR%\%%N_input.wav" set /a ARCHIVE_INDEX=%%N+1
     )
 )
+copy /y "%INPUT_FILE%" "%HISTORY_DIR%\!ARCHIVE_INDEX!_input.wav" >nul
+copy /y "%VOICE_FILE%" "%HISTORY_DIR%\!ARCHIVE_INDEX!_metrocop.wav" >nul
+echo [SAVED] %HISTORY_DIR%\!ARCHIVE_INDEX!_metrocop.wav
 exit /b
