@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 import subprocess
 import sys
 import time
@@ -13,7 +14,9 @@ LOG_FILE = ROOT / "metrocop.log"
 RAW_FILE = ROOT / "recording.pcm"
 INPUT_FILE = ROOT / "input.wav"
 OUTPUT_FILE = ROOT / "output_metrocop.wav"
+HISTORY = ROOT / "recordings"
 MIC_NAME = "Microphone (WO Mic Device)"
+MAX_RECORDINGS = 11
 
 
 def log(message: str) -> None:
@@ -42,10 +45,6 @@ def run(command: list[str]) -> None:
 
 
 def start_recording() -> None:
-    # A new transmission always replaces the previous one. Do this before
-    # FFmpeg opens the microphone so stale files cannot be used by mistake.
-    INPUT_FILE.unlink(missing_ok=True)
-    OUTPUT_FILE.unlink(missing_ok=True)
     RAW_FILE.unlink(missing_ok=True)
     command = [
         "ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "warning", "-y",
@@ -61,8 +60,29 @@ def start_recording() -> None:
             command, cwd=ROOT, stdout=stream, stderr=subprocess.STDOUT,
             creationflags=subprocess.CREATE_NO_WINDOW | subprocess.CREATE_NEW_PROCESS_GROUP,
         )
-    write_state({"mode": "recording", "pid": process.pid, "started": time.time()})
+    write_state({"pid": process.pid, "started": time.time()})
     log(f"Recording started (PID {process.pid}).")
+
+
+def archive() -> None:
+    HISTORY.mkdir(exist_ok=True)
+    # Keep 0..10, where 0 is oldest, exactly like a FIFO queue.
+    if (HISTORY / f"{MAX_RECORDINGS - 1}_input.wav").exists():
+        for suffix in ("input.wav", "metrocop.wav"):
+            (HISTORY / f"0_{suffix}").unlink(missing_ok=True)
+        # Shift upward in age order: 1 becomes 0, then 2 becomes 1, etc.
+        for index in range(1, MAX_RECORDINGS):
+            for suffix in ("input.wav", "metrocop.wav"):
+                source = HISTORY / f"{index}_{suffix}"
+                target = HISTORY / f"{index - 1}_{suffix}"
+                if source.exists():
+                    source.replace(target)
+        target_index = MAX_RECORDINGS - 1
+    else:
+        target_index = sum((HISTORY / f"{index}_input.wav").exists()
+                           for index in range(MAX_RECORDINGS))
+    shutil.copy2(INPUT_FILE, HISTORY / f"{target_index}_input.wav")
+    shutil.copy2(OUTPUT_FILE, HISTORY / f"{target_index}_metrocop.wav")
 
 
 def stop_and_process(state: dict) -> None:
@@ -75,32 +95,25 @@ def stop_and_process(state: dict) -> None:
     subprocess.run(["taskkill", "/PID", str(pid), "/T", "/F"], capture_output=True,
                    creationflags=subprocess.CREATE_NO_WINDOW)
     time.sleep(0.4)
-    # Do not accept another F6 while conversion or ffplay is still using the
-    # one output file. Concurrent controllers were able to race and mix an old
-    # phrase with a new one.
-    write_state({"mode": "processing", "started": time.time()})
+    clear_state()
+    if not RAW_FILE.exists() or RAW_FILE.stat().st_size < 4000:
+        log("Recording was empty; nothing was processed.")
+        return
     try:
-        if not RAW_FILE.exists() or RAW_FILE.stat().st_size < 4000:
-            log("Recording was empty; nothing was processed.")
-            return
         run(["ffmpeg", "-y", "-hide_banner", "-loglevel", "warning", "-f", "s16le",
              "-ar", "44100", "-ac", "1", "-i", str(RAW_FILE), str(INPUT_FILE)])
         run(["cmd.exe", "/d", "/c", str(ROOT / "radio.bat")])
+        archive()
         log("Playing output_metrocop.wav on the Windows default output device.")
         run(["ffplay", "-nodisp", "-autoexit", "-hide_banner", "-loglevel", "warning", str(OUTPUT_FILE)])
         log("Message complete.")
     except (OSError, subprocess.CalledProcessError) as error:
         log(f"Processing failed: {error}")
-    finally:
-        clear_state()
 
 
 def toggle() -> None:
-    log("F6 toggle received.")
     state = read_state()
-    if state.get("mode") == "processing":
-        log("F6 ignored: the previous message is still processing or playing.")
-    elif state:
+    if state:
         stop_and_process(state)
     else:
         try:
