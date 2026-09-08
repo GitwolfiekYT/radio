@@ -61,7 +61,7 @@ def start_recording() -> None:
             command, cwd=ROOT, stdout=stream, stderr=subprocess.STDOUT,
             creationflags=subprocess.CREATE_NO_WINDOW | subprocess.CREATE_NEW_PROCESS_GROUP,
         )
-    write_state({"pid": process.pid, "started": time.time()})
+    write_state({"mode": "recording", "pid": process.pid, "started": time.time()})
     log(f"Recording started (PID {process.pid}).")
 
 
@@ -75,11 +75,14 @@ def stop_and_process(state: dict) -> None:
     subprocess.run(["taskkill", "/PID", str(pid), "/T", "/F"], capture_output=True,
                    creationflags=subprocess.CREATE_NO_WINDOW)
     time.sleep(0.4)
-    clear_state()
-    if not RAW_FILE.exists() or RAW_FILE.stat().st_size < 4000:
-        log("Recording was empty; nothing was processed.")
-        return
+    # Do not accept another F6 while conversion or ffplay is still using the
+    # one output file. Concurrent controllers were able to race and mix an old
+    # phrase with a new one.
+    write_state({"mode": "processing", "started": time.time()})
     try:
+        if not RAW_FILE.exists() or RAW_FILE.stat().st_size < 4000:
+            log("Recording was empty; nothing was processed.")
+            return
         run(["ffmpeg", "-y", "-hide_banner", "-loglevel", "warning", "-f", "s16le",
              "-ar", "44100", "-ac", "1", "-i", str(RAW_FILE), str(INPUT_FILE)])
         run(["cmd.exe", "/d", "/c", str(ROOT / "radio.bat")])
@@ -88,11 +91,16 @@ def stop_and_process(state: dict) -> None:
         log("Message complete.")
     except (OSError, subprocess.CalledProcessError) as error:
         log(f"Processing failed: {error}")
+    finally:
+        clear_state()
 
 
 def toggle() -> None:
+    log("F6 toggle received.")
     state = read_state()
-    if state:
+    if state.get("mode") == "processing":
+        log("F6 ignored: the previous message is still processing or playing.")
+    elif state:
         stop_and_process(state)
     else:
         try:

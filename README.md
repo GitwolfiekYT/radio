@@ -26,7 +26,9 @@ forced stop on the second F6 does not discard the last part of the phrase.
 3. Keep `on2.wav` and `off2.wav` beside the scripts.
 4. Run `metrocop.ahk` with **AutoHotkey v1**. In VRChat, use F6 as the trigger:
    press once to start recording, speak, then press F6 again to stop and
-   transmit.
+   transmit. While the generated radio message is being converted or played,
+   additional F6 presses are intentionally ignored; wait for playback to end
+   before starting the next phrase.
 5. If FFmpeg shows another DirectShow microphone name, edit only `MIC_NAME` in
    `metrocop.py`. To list names, run:
    ```bat
@@ -41,5 +43,6 @@ forced stop on the second F6 does not discard the last part of the phrase.
   `output_metrocop.wav`. There is no recording history, so a phrase can never
   be selected from an older numbered file.
 * `metrocop.log` records start/stop and FFmpeg errors. If F6 seems to do
-  nothing, open this file first. It will reveal missing Python, FFmpeg, or a
-  wrong microphone name.
+  nothing, open this file first. Every received F6 is logged, along with a
+  missing Python/FFmpeg installation, a wrong microphone name, or a press made
+  while the previous message is playing.
