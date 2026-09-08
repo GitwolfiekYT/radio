@@ -5,9 +5,9 @@ controller builds the radio message, retains it, then plays it through the
 Windows default output device. It uses no Soundpad keys and no permanent
 console window, so F6 does not rely on sending a character to `cmd.exe`.
 
-The recorder uses a 50 ms DirectShow audio buffer to avoid the default
-half-second startup latency. There is deliberately no extra Windows ready beep:
-that sound can interfere with some virtual-audio routes.
+There is deliberately no Windows ready beep: that sound can interfere with
+some virtual-audio routes. The recorder flushes raw audio continuously, so a
+forced stop on the second F6 does not discard the last part of the phrase.
 
 ## Files and responsibilities
 

@@ -48,11 +48,12 @@ def start_recording() -> None:
     RAW_FILE.unlink(missing_ok=True)
     command = [
         "ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "warning", "-y",
-        # DirectShow defaults to a 500 ms audio buffer.  A small buffer keeps
-        # the beginning of a short radio call from sitting in startup latency.
-        "-f", "dshow", "-rtbufsize", "64M", "-audio_buffer_size", "50",
-        "-thread_queue_size", "1024", "-i", f"audio={MIC_NAME}",
-        "-f", "s16le", "-ac", "1", "-ar", "44100", str(RAW_FILE),
+        "-f", "dshow", "-rtbufsize", "64M", "-i", f"audio={MIC_NAME}",
+        # The controller has to force-stop FFmpeg from a later F6 press.
+        # Flush every raw PCM packet so that stop cannot leave the spoken tail
+        # sitting in FFmpeg's output buffer.
+        "-f", "s16le", "-ac", "1", "-ar", "44100", "-flush_packets", "1",
+        str(RAW_FILE),
     ]
     with LOG_FILE.open("a", encoding="utf-8") as stream:
         process = subprocess.Popen(
