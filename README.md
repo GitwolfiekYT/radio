@@ -1,28 +1,38 @@
 # MetroCop radio recorder
 
-`metrocop.ahk` uses **only F6**. The first press starts microphone capture; the
-second press stops it, builds the radio transmission, saves it, and plays it on
-the Windows default output device. It does not send any Soundpad shortcuts.
+Press **F6** once to record from WO Mic and press **F6** again to stop. The
+controller builds the radio message, retains it, then plays it through the
+Windows default output device. It uses no Soundpad keys and no permanent
+console window, so F6 does not rely on sending a character to `cmd.exe`.
+
+## Files and responsibilities
+
+* `metrocop.ahk` is a tiny AutoHotkey v1 F6 trigger.
+* `metrocop.py` records, stops the exact FFmpeg process it started, keeps the
+  history, and plays the finished result.
+* `radio.bat` is **only** the requested FFmpeg voice converter plus the
+  `on2.wav` / `off2.wav` concatenation. The supplied voice-filter command is
+  preserved unchanged.
 
 ## Setup
 
-1. Install FFmpeg and make sure both `ffmpeg` and `ffplay` are available in
-   `PATH`.
-2. Put `on2.wav` and `off2.wav` next to `radio.bat`.
-3. Confirm that `ffmpeg -list_devices true -f dshow -i dummy` reports the
-   microphone as `Microphone (WO Mic Device)`. If Windows reports a different
-   name, change only `MIC_NAME` at the top of `radio.bat`.
-4. Run `metrocop.ahk` with AutoHotkey v1. The console opens once and remains
-   open; keep it running while using F6 in VRChat.
+1. Install **Python 3** using the standard Windows installer. It must provide
+   `py.exe` (enable the launcher option during installation).
+2. Install FFmpeg and ensure `ffmpeg` and `ffplay` are available in `PATH`.
+3. Keep `on2.wav` and `off2.wav` beside the scripts.
+4. Run `metrocop.ahk` with **AutoHotkey v1**. In VRChat, use F6 as the trigger.
+5. If FFmpeg shows another DirectShow microphone name, edit only `MIC_NAME` in
+   `metrocop.py`. To list names, run:
+   ```bat
+   ffmpeg -list_devices true -f dshow -i dummy
+   ```
 
-## Files produced
+## Output and diagnostics
 
-* `input.wav` is the last captured microphone phrase.
-* `output_metrocop.wav` is the final playback file: `on2.wav`, the supplied
-  MetroCop FFmpeg voice filter, then `off2.wav`.
-* `recordings/` retains 11 complete input/output pairs, numbered `0` through
-  `10`. Index `0` is the oldest; when another message arrives, it is removed
-  and the remaining pairs shift down one index.
-
-Temporary `recording.pcm` is deliberately retained after failures so a broken
-recording can be diagnosed.
+* `input.wav` is the latest captured phrase.
+* `output_metrocop.wav` is the final `on2 + converted voice + off2` message.
+* `recordings/` contains eleven input/output pairs. `0` is oldest and `10` is
+  newest; recording a twelfth message drops index 0 and shifts the rest down.
+* `metrocop.log` records start/stop and FFmpeg errors. If F6 seems to do
+  nothing, open this file first. It will reveal missing Python, FFmpeg, or a
+  wrong microphone name.
