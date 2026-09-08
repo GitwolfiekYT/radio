@@ -5,11 +5,9 @@ controller builds the radio message, retains it, then plays it through the
 Windows default output device. It uses no Soundpad keys and no permanent
 console window, so F6 does not rely on sending a character to `cmd.exe`.
 
-When WO Mic has delivered the first audio samples, Windows plays a short
-system notification sound. **Start speaking after that sound**. This removes
-the unreliable DirectShow/WO Mic startup gap that could otherwise cut off a
-short phrase entirely. If the sound does not arrive within five seconds, check
-`metrocop.log` for a wrong microphone name or a disconnected phone.
+The recorder uses a 50 ms DirectShow audio buffer to avoid the default
+half-second startup latency. There is deliberately no extra Windows ready beep:
+that sound can interfere with some virtual-audio routes.
 
 ## Files and responsibilities
 
@@ -27,8 +25,8 @@ short phrase entirely. If the sound does not arrive within five seconds, check
 2. Install FFmpeg and ensure `ffmpeg` and `ffplay` are available in `PATH`.
 3. Keep `on2.wav` and `off2.wav` beside the scripts.
 4. Run `metrocop.ahk` with **AutoHotkey v1**. In VRChat, use F6 as the trigger:
-   press once, wait for the short Windows ready sound, speak, then press F6
-   again to stop and transmit.
+   press once to start recording, speak, then press F6 again to stop and
+   transmit.
 5. If FFmpeg shows another DirectShow microphone name, edit only `MIC_NAME` in
    `metrocop.py`. To list names, run:
    ```bat

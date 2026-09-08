@@ -8,9 +8,6 @@ import sys
 import time
 from pathlib import Path
 
-if sys.platform == "win32":
-    import winsound
-
 ROOT = Path(__file__).resolve().parent
 STATE_FILE = ROOT / ".metrocop-state.json"
 LOG_FILE = ROOT / "metrocop.log"
@@ -20,8 +17,6 @@ OUTPUT_FILE = ROOT / "output_metrocop.wav"
 HISTORY = ROOT / "recordings"
 MIC_NAME = "Microphone (WO Mic Device)"
 MAX_RECORDINGS = 11
-READY_BYTES = 4_410  # 50 ms of 44.1 kHz, mono, signed 16-bit PCM.
-READY_TIMEOUT_SECONDS = 5.0
 
 
 def log(message: str) -> None:
@@ -49,29 +44,14 @@ def run(command: list[str]) -> None:
     subprocess.run(command, cwd=ROOT, check=True, creationflags=subprocess.CREATE_NO_WINDOW)
 
 
-def wait_until_microphone_is_ready(process: subprocess.Popen[bytes]) -> bool:
-    """Wait until DirectShow has written audio, rather than only spawned FFmpeg."""
-    deadline = time.monotonic() + READY_TIMEOUT_SECONDS
-    while time.monotonic() < deadline:
-        if RAW_FILE.exists() and RAW_FILE.stat().st_size >= READY_BYTES:
-            return True
-        if process.poll() is not None:
-            return False
-        time.sleep(0.05)
-    return False
-
-
-def notify_recording_ready() -> None:
-    """Give a local ready cue only after the microphone has actual samples."""
-    if sys.platform == "win32":
-        winsound.MessageBeep(winsound.MB_ICONASTERISK)
-
-
 def start_recording() -> None:
     RAW_FILE.unlink(missing_ok=True)
     command = [
         "ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "warning", "-y",
-        "-f", "dshow", "-rtbufsize", "64M", "-i", f"audio={MIC_NAME}",
+        # DirectShow defaults to a 500 ms audio buffer.  A small buffer keeps
+        # the beginning of a short radio call from sitting in startup latency.
+        "-f", "dshow", "-rtbufsize", "64M", "-audio_buffer_size", "50",
+        "-thread_queue_size", "1024", "-i", f"audio={MIC_NAME}",
         "-f", "s16le", "-ac", "1", "-ar", "44100", str(RAW_FILE),
     ]
     with LOG_FILE.open("a", encoding="utf-8") as stream:
@@ -80,13 +60,7 @@ def start_recording() -> None:
             creationflags=subprocess.CREATE_NO_WINDOW | subprocess.CREATE_NEW_PROCESS_GROUP,
         )
     write_state({"pid": process.pid, "started": time.time()})
-    # DirectShow often needs a short moment to open WO Mic.  Spawning FFmpeg is
-    # not enough: speaking before its first samples arrive loses the beginning.
-    if wait_until_microphone_is_ready(process):
-        notify_recording_ready()
-        log(f"Microphone ready; recording started (PID {process.pid}).")
-    else:
-        log("FFmpeg was started but WO Mic did not provide audio within 5 seconds.")
+    log(f"Recording started (PID {process.pid}).")
 
 
 def archive() -> None:
