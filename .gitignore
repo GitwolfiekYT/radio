@@ -1,7 +1,6 @@
-# Runtime audio, controller state, and rolling message history
+# Runtime audio and controller state
 *.wav
 *.pcm
-recordings/
 recording.lock
 recording.pid
 radio_counter.txt
