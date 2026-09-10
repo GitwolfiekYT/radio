@@ -8,6 +8,6 @@ SetWorkingDir %A_ScriptDir%
 ; recording; it does not depend on a cmd.exe window receiving keystrokes.
 $F6::
     KeyWait, F6, T0.05
-    Run, py.exe -3 metrocop.py toggle, %A_ScriptDir%, Hide
+    Run, py.exe -3 combine.py toggle, %A_ScriptDir%, Hide
     KeyWait, F6
 return

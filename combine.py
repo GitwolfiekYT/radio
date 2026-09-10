@@ -1,4 +1,4 @@
-"""F6 controller for the MetroCop radio recorder (Windows only)."""
+"""F6 controller for the Combine radio recorder (Windows only)."""
 from __future__ import annotations
 
 import json
@@ -9,11 +9,11 @@ import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
-STATE_FILE = ROOT / ".metrocop-state.json"
-LOG_FILE = ROOT / "metrocop.log"
+STATE_FILE = ROOT / ".combine-state.json"
+LOG_FILE = ROOT / "combine.log"
 RAW_FILE = ROOT / "recording.pcm"
 INPUT_FILE = ROOT / "input.wav"
-OUTPUT_FILE = ROOT / "output_metrocop.wav"
+OUTPUT_FILE = ROOT / "output_combine.wav"
 HISTORY = ROOT / "recordings"
 MIC_NAME = "Microphone (WO Mic Device)"
 MAX_RECORDINGS = 11
@@ -68,11 +68,11 @@ def archive() -> None:
     HISTORY.mkdir(exist_ok=True)
     # Keep 0..10, where 0 is oldest, exactly like a FIFO queue.
     if (HISTORY / f"{MAX_RECORDINGS - 1}_input.wav").exists():
-        for suffix in ("input.wav", "metrocop.wav"):
+        for suffix in ("input.wav", "combine.wav"):
             (HISTORY / f"0_{suffix}").unlink(missing_ok=True)
         # Shift upward in age order: 1 becomes 0, then 2 becomes 1, etc.
         for index in range(1, MAX_RECORDINGS):
-            for suffix in ("input.wav", "metrocop.wav"):
+            for suffix in ("input.wav", "combine.wav"):
                 source = HISTORY / f"{index}_{suffix}"
                 target = HISTORY / f"{index - 1}_{suffix}"
                 if source.exists():
@@ -82,7 +82,7 @@ def archive() -> None:
         target_index = sum((HISTORY / f"{index}_input.wav").exists()
                            for index in range(MAX_RECORDINGS))
     shutil.copy2(INPUT_FILE, HISTORY / f"{target_index}_input.wav")
-    shutil.copy2(OUTPUT_FILE, HISTORY / f"{target_index}_metrocop.wav")
+    shutil.copy2(OUTPUT_FILE, HISTORY / f"{target_index}_combine.wav")
 
 
 def stop_and_process(state: dict) -> None:
@@ -104,7 +104,7 @@ def stop_and_process(state: dict) -> None:
              "-ar", "44100", "-ac", "1", "-i", str(RAW_FILE), str(INPUT_FILE)])
         run(["cmd.exe", "/d", "/c", str(ROOT / "radio.bat")])
         archive()
-        log("Playing output_metrocop.wav on the Windows default output device.")
+        log("Playing output_combine.wav on the Windows default output device.")
         run(["ffplay", "-nodisp", "-autoexit", "-hide_banner", "-loglevel", "warning", str(OUTPUT_FILE)])
         log("Message complete.")
     except (OSError, subprocess.CalledProcessError) as error:
@@ -126,4 +126,4 @@ if __name__ == "__main__":
     if len(sys.argv) == 2 and sys.argv[1] == "toggle":
         toggle()
     else:
-        raise SystemExit("Usage: py -3 metrocop.py toggle")
+        raise SystemExit("Usage: py -3 combine.py toggle")

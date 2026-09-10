@@ -5,5 +5,5 @@ recordings/
 recording.lock
 recording.pid
 radio_counter.txt
-.metrocop-state.json
-metrocop.log
+.combine-state.json
+combine.log
